@@ -69,7 +69,7 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
         // This demonstrates the structure without complex processing
         images.push({
           filename: `page-${i + 1}.pdf`,
-          data: `data:application/pdf;base64,${pdfBase64}`,
+          data: `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
           page: i + 1,
           type: 'pdf',
           note: 'Page extracted from original PDF'
