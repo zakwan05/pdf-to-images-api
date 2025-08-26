@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const { fromPath } = require('pdf2pic');
 const fs = require('fs-extra');
 const path = require('path');
 const cors = require('cors');
@@ -39,19 +40,84 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     // Get the PDF file buffer from memory
     const pdfBuffer = req.file.buffer;
     
-    // Convert PDF buffer to base64 for client-side processing
-    const pdfBase64 = pdfBuffer.toString('base64');
-    const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
+    // Create temporary files for processing
+    const tempDir = '/tmp';
+    const timestamp = Date.now();
+    const pdfPath = path.join(tempDir, `temp-${timestamp}.pdf`);
+    const outputDir = path.join(tempDir, `output-${timestamp}`);
+    
+    // Ensure directories exist
+    await fs.ensureDir(outputDir);
+    
+    // Write PDF buffer to temporary file
+    await fs.writeFile(pdfPath, pdfBuffer);
 
-    // Return the PDF data for client-side processing
-    res.json({
-      success: true,
-      message: 'PDF received successfully. Processing in browser...',
-      pdfData: pdfDataUrl,
-      filename: req.file.originalname,
-      size: req.file.size,
-      note: 'Server-side processing temporarily disabled. Use client-side processing.'
-    });
+    try {
+      // Convert PDF to images using pdf2pic
+      const convert = fromPath(pdfPath, {
+        density: 100,
+        saveFilename: 'page',
+        savePath: outputDir,
+        format: 'png',
+        width: 2000,
+        height: 2000
+      });
+
+      const results = await convert.bulk(-1); // Convert all pages
+      
+      const images = [];
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.path) {
+          const imageBuffer = await fs.readFile(result.path);
+          const base64Image = imageBuffer.toString('base64');
+          
+          images.push({
+            filename: `page-${i + 1}.png`,
+            data: `data:image/png;base64,${base64Image}`,
+            page: i + 1
+          });
+        }
+      }
+
+      // Sort images by page number
+      images.sort((a, b) => a.page - b.page);
+
+      // Clean up temporary files
+      await fs.remove(pdfPath);
+      await fs.remove(outputDir);
+
+      // Return the converted images
+      res.json({
+        success: true,
+        message: `PDF converted to ${images.length} images`,
+        images: images,
+        totalPages: images.length,
+        filename: req.file.originalname,
+        size: req.file.size
+      });
+
+    } catch (conversionError) {
+      // If conversion fails, fall back to returning PDF data
+      console.error('PDF conversion failed:', conversionError);
+      
+      // Clean up temp files
+      await fs.remove(pdfPath);
+      await fs.remove(outputDir);
+      
+      const pdfBase64 = pdfBuffer.toString('base64');
+      const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
+
+      res.json({
+        success: true,
+        message: 'PDF received successfully. Server-side conversion failed, using fallback.',
+        pdfData: pdfDataUrl,
+        filename: req.file.originalname,
+        size: req.file.size,
+        note: 'Server-side processing failed, PDF data provided as fallback.',
+        error: conversionError.message
+      });
+    }
 
   } catch (error) {
     console.error('Error converting PDF:', error);
