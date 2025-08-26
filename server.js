@@ -41,13 +41,12 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     const pdfBuffer = req.file.buffer;
     
     // Create temporary files for processing
-    const tempDir = './temp';
+    const tempDir = '/tmp';
     const timestamp = Date.now();
     const pdfPath = path.join(tempDir, `temp-${timestamp}.pdf`);
     const outputDir = path.join(tempDir, `output-${timestamp}`);
     
     // Ensure directories exist
-    await fs.ensureDir(tempDir);
     await fs.ensureDir(outputDir);
     
     // Write PDF buffer to temporary file
