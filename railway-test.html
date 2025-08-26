@@ -271,6 +271,41 @@
             color: #666;
             font-size: 0.9rem;
         }
+
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .analysis-item {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .analysis-item h4 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .analysis-item p {
+            color: #555;
+            margin: 8px 0;
+            font-size: 0.95rem;
+        }
+
+        .note {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border-left: 4px solid #ffc107;
+        }
     </style>
 </head>
 <body>
@@ -402,7 +437,18 @@
 
                 const data = await response.json();
                 showMessage(`✅ ${data.message}`, 'success');
-                if (data.images) {
+                if (data.analysis) {
+                    // New analysis response
+                    if (data.analysis.images) {
+                        showMessage(`🖼️ ${data.analysis.images.length} images generated!`, 'success');
+                        displayAnalysis(data.analysis);
+                        displayImages(data.analysis.images);
+                    } else {
+                        showMessage(`📊 PDF analyzed: ${data.analysis.pages} pages, ${data.analysis.wordCount} words`, 'success');
+                        displayAnalysis(data.analysis);
+                    }
+                } else if (data.images) {
+                    // Legacy response
                     showMessage(`🖼️ ${data.totalPages} images generated!`, 'success');
                     displayResponse(data, 'PDF to Images Response');
                     displayImages(data.images);
@@ -475,6 +521,34 @@
             results.style.display = 'block';
         }
 
+        function displayAnalysis(analysis) {
+            let analysisHtml = `
+                <div class="response-card">
+                    <h3>📊 PDF Analysis Results</h3>
+                    <div class="analysis-grid">
+                        <div class="analysis-item">
+                            <h4>📄 Document Info</h4>
+                            <p><strong>Filename:</strong> ${analysis.filename}</p>
+                            <p><strong>Pages:</strong> ${analysis.pages}</p>
+                            <p><strong>File Size:</strong> ${(analysis.fileSize / 1024).toFixed(1)} KB</p>
+                            <p><strong>Word Count:</strong> ${analysis.wordCount}</p>
+                        </div>
+                        <div class="analysis-item">
+                            <h4>📋 Metadata</h4>
+                            <p><strong>Title:</strong> ${analysis.metadata?.title || 'Unknown'}</p>
+                            <p><strong>Author:</strong> ${analysis.metadata?.author || 'Unknown'}</p>
+                            <p><strong>Subject:</strong> ${analysis.metadata?.subject || 'Unknown'}</p>
+                            <p><strong>Creator:</strong> ${analysis.metadata?.creator || 'Unknown'}</p>
+                        </div>
+                    </div>
+                    ${analysis.note ? `<div class="note">ℹ️ ${analysis.note}</div>` : ''}
+                </div>
+            `;
+            
+            responseContent.innerHTML = analysisHtml;
+            results.style.display = 'block';
+        }
+
         function displayImages(images) {
             let imagesHtml = '<div class="images-grid">';
             images.forEach((image, index) => {
@@ -492,7 +566,7 @@
             
             responseContent.innerHTML += `
                 <div class="response-card">
-                    <h3>Converted Images (${images.length})</h3>
+                    <h3>🖼️ Converted Images (${images.length})</h3>
                     ${imagesHtml}
                 </div>
             `;

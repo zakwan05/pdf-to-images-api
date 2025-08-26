@@ -1,6 +1,8 @@
 const express = require('express');
 const multer = require('multer');
-const { fromPath } = require('pdf2pic');
+const { PDFDocument } = require('pdf-lib');
+const pdfParse = require('pdf-parse');
+const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
 const cors = require('cors');
@@ -53,30 +55,144 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     await fs.writeFile(pdfPath, pdfBuffer);
 
     try {
-      // Convert PDF to actual images using pdf2pic
-      const convert = fromPath(pdfPath, {
-        density: 150,
-        saveFilename: 'page',
-        savePath: outputDir,
-        format: 'png',
-        width: 2000,
-        height: 2000
-      });
-
-      const results = await convert.bulk(-1); // Convert all pages
+      // Analyze PDF using pdf-lib and pdf-parse
+      const pdfDoc = await PDFDocument.load(pdfBuffer);
+      const pageCount = pdfDoc.getPageCount();
       
-      const images = [];
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i];
-        if (result.path) {
-          const imageBuffer = await fs.readFile(result.path);
-          const base64Image = imageBuffer.toString('base64');
-          
-          images.push({
-            filename: `page-${i + 1}.png`,
-            data: `data:image/png;base64,${base64Image}`,
-            page: i + 1,
-            type: 'png'
+      // Extract text content
+      const pdfData = await pdfParse(pdfBuffer);
+      const textContent = pdfData.text;
+      const wordCount = textContent.split(/\s+/).filter(word => word.length > 0).length;
+      
+      // Get PDF metadata
+      const metadata = {
+        title: pdfData.info?.Title || 'Unknown',
+        author: pdfData.info?.Author || 'Unknown',
+        subject: pdfData.info?.Subject || 'Unknown',
+        creator: pdfData.info?.Creator || 'Unknown',
+        producer: pdfData.info?.Producer || 'Unknown',
+        creationDate: pdfData.info?.CreationDate || 'Unknown',
+        modificationDate: pdfData.info?.ModDate || 'Unknown'
+      };
+
+      // Use CloudConvert to convert PDF to images
+      const cloudConvertApiKey = process.env.CLOUDCONVERT_API_KEY || 'demo_key';
+      
+      if (cloudConvertApiKey === 'demo_key') {
+        // Demo mode - return analysis without images
+        res.json({
+          success: true,
+          message: `PDF analyzed successfully! ${pageCount} pages detected.`,
+          analysis: {
+            pages: pageCount,
+            fileSize: req.file.size,
+            filename: req.file.originalname,
+            textContent: textContent.substring(0, 500) + '...',
+            wordCount: wordCount,
+            metadata: metadata,
+            note: 'Demo mode - add CLOUDCONVERT_API_KEY for image conversion'
+          }
+        });
+      } else {
+        // Real CloudConvert processing
+        try {
+          // Create CloudConvert job
+          const jobResponse = await axios.post('https://api.cloudconvert.com/v2/jobs', {
+            tasks: {
+              'import-pdf': {
+                operation: 'import/upload'
+              },
+              'convert-pdf': {
+                operation: 'convert',
+                input: 'import-pdf',
+                output_format: 'png',
+                page_range: `1-${pageCount}`,
+                density: 150
+              },
+              'export-images': {
+                operation: 'export/url',
+                input: 'convert-pdf'
+              }
+            }
+          }, {
+            headers: {
+              'Authorization': `Bearer ${cloudConvertApiKey}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          // Upload PDF to CloudConvert
+          const uploadTask = jobResponse.data.tasks.find(t => t.name === 'import-pdf');
+          if (uploadTask && uploadTask.result?.form) {
+            const formData = new FormData();
+            formData.append('file', new Blob([pdfBuffer], { type: 'application/pdf' }), req.file.originalname);
+            
+            await axios.post(uploadTask.result.form.url, formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data'
+              }
+            });
+
+            // Wait for conversion and get results
+            let exportTask;
+            for (let i = 0; i < 30; i++) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              const jobStatus = await axios.get(`https://api.cloudconvert.com/v2/jobs/${jobResponse.data.id}`, {
+                headers: { 'Authorization': `Bearer ${cloudConvertApiKey}` }
+              });
+              
+              exportTask = jobStatus.data.tasks.find(t => t.name === 'export-images');
+              if (exportTask && exportTask.status === 'finished') break;
+            }
+
+            if (exportTask && exportTask.result?.files) {
+              const images = [];
+              for (let i = 0; i < exportTask.result.files.length; i++) {
+                const file = exportTask.result.files[i];
+                const imageResponse = await axios.get(file.url, { responseType: 'arraybuffer' });
+                const base64Image = Buffer.from(imageResponse.data).toString('base64');
+                
+                images.push({
+                  filename: `page-${i + 1}.png`,
+                  data: `data:image/png;base64,${base64Image}`,
+                  page: i + 1,
+                  format: 'png'
+                });
+              }
+
+              res.json({
+                success: true,
+                message: `PDF converted to ${images.length} images successfully!`,
+                analysis: {
+                  pages: pageCount,
+                  fileSize: req.file.size,
+                  filename: req.file.originalname,
+                  textContent: textContent.substring(0, 500) + '...',
+                  wordCount: wordCount,
+                  metadata: metadata,
+                  images: images
+                }
+              });
+            } else {
+              throw new Error('CloudConvert conversion failed');
+            }
+          }
+        } catch (cloudConvertError) {
+          console.error('CloudConvert error:', cloudConvertError);
+          // Fallback to analysis only
+          res.json({
+            success: true,
+            message: `PDF analyzed successfully! ${pageCount} pages detected.`,
+            analysis: {
+              pages: pageCount,
+              fileSize: req.file.size,
+              filename: req.file.originalname,
+              textContent: textContent.substring(0, 500) + '...',
+              wordCount: wordCount,
+              metadata: metadata,
+              note: 'Image conversion failed, but analysis completed successfully'
+            }
           });
         }
       }
@@ -84,17 +200,6 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
       // Clean up temporary files
       await fs.remove(pdfPath);
       await fs.remove(outputDir);
-
-      // Return the actual converted images
-      res.json({
-        success: true,
-        message: `PDF converted to ${images.length} images successfully!`,
-        images: images,
-        totalPages: images.length,
-        filename: req.file.originalname,
-        size: req.file.size,
-        processing: 'full'
-      });
 
     } catch (conversionError) {
       // If conversion fails, fall back to returning PDF data
