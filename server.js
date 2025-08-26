@@ -114,10 +114,13 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('Health check requested');
   res.json({ 
     status: 'OK', 
     message: 'PDF to Images API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
