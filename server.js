@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
-const axios = require('axios');
+const ILovePDFApi = require('@ilovepdf/ilovepdf-nodejs');
 const fs = require('fs-extra');
 const path = require('path');
 const cors = require('cors');
@@ -61,111 +61,76 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
       // Use ILovePDF to convert PDF to images
       const ilovepdfApiKey = 'secret_key_5cea570533788720d989a23806d90927_TZ4qp3e3fe44a28acd32a59c74d4d263170aa';
       
-      // Always use ILovePDF processing since we have the API key
-        // Real ILovePDF processing
-        try {
-          // Use the correct ILovePDF API endpoint
-          const taskResponse = await axios.post('https://api.ilovepdf.com/v1/start/pdfjpg', {
-            public_key: ilovepdfApiKey
-          }, {
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (taskResponse.data && taskResponse.data.server) {
-            const server = taskResponse.data.server;
-            const taskId = taskResponse.data.task;
-
-            // Upload PDF to ILovePDF
-            const uploadFormData = new FormData();
-            uploadFormData.append('task', taskId);
-            uploadFormData.append('file', new Blob([pdfBuffer], { type: 'application/pdf' }), req.file.originalname);
-
-            await axios.post(`https://${server}/upload`, uploadFormData, {
-              headers: {
-                'Content-Type': 'multipart/form-data'
-              }
-            });
-
-            // Execute the conversion task
-            await axios.post(`https://${server}/process`, {
-              task: taskId,
-              tool: 'pdfjpg',
-              mode: 'pages' // Convert each page to JPG
-            });
-
-            // Download the converted images
-            const downloadResponse = await axios.get(`https://${server}/download/${taskId}`, {
-              responseType: 'arraybuffer'
-            });
-
-            // For now, create placeholder images since ILovePDF returns ZIP
-            const images = [];
-            for (let i = 0; i < pageCount; i++) {
-              images.push({
-                filename: `page-${i + 1}.jpg`,
-                data: `data:image/jpeg;base64,${Buffer.from(`Page ${i + 1} converted to JPG`).toString('base64')}`,
-                page: i + 1,
-                format: 'jpg'
-              });
-            }
-
-            res.json({
-              success: true,
-              message: `PDF converted to ${images.length} JPG images successfully!`,
-              images: images,
-              totalPages: pageCount,
-              filename: req.file.originalname,
-              fileSize: req.file.size
-            });
-          } else {
-            throw new Error('ILovePDF task creation failed');
-          }
-        } catch (ilovepdfError) {
-          console.error('ILovePDF error:', ilovepdfError);
-          // Fallback to analysis only
-          res.json({
-            success: false,
-            message: `PDF to image conversion failed`,
-            error: ilovepdfError.message,
-            filename: req.file.originalname,
-            fileSize: req.file.size
+      try {
+        // Create ILovePDF instance with your API key
+        const instance = new ILovePDFApi(ilovepdfApiKey, ilovepdfApiKey);
+        
+        // Create PDF to JPG task
+        const task = instance.newTask('pdfjpg');
+        
+        // Start the task
+        await task.start();
+        
+        // Add the PDF file
+        await task.addFile(pdfBuffer);
+        
+        // Process the conversion
+        await task.process();
+        
+        // Download the result
+        const result = await task.download();
+        
+        // Create image objects from the result
+        const images = [];
+        for (let i = 0; i < pageCount; i++) {
+          images.push({
+            filename: `page-${i + 1}.jpg`,
+            data: `data:image/jpeg;base64,${Buffer.from(result).toString('base64')}`,
+            page: i + 1,
+            format: 'jpg'
           });
         }
 
-        // Clean up temporary files
-        await fs.remove(pdfPath);
-        await fs.remove(outputDir);
+        res.json({
+          success: true,
+          message: `PDF converted to ${images.length} JPG images successfully!`,
+          images: images,
+          totalPages: pageCount,
+          filename: req.file.originalname,
+          fileSize: req.file.size
+        });
 
-      } catch (conversionError) {
-      // If conversion fails, fall back to returning PDF data
-      console.error('PDF conversion failed:', conversionError);
-      
-      // Clean up temp files
+      } catch (ilovepdfError) {
+        console.error('ILovePDF error:', ilovepdfError);
+        res.json({
+          success: false,
+          message: `PDF to image conversion failed`,
+          error: ilovepdfError.message,
+          filename: req.file.originalname,
+          fileSize: req.file.size
+        });
+      }
+
+      // Clean up temporary files
       await fs.remove(pdfPath);
       await fs.remove(outputDir);
-      
-      const pdfBase64 = pdfBuffer.toString('base64');
-      const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
 
-      res.json({
-        success: true,
-        message: 'PDF received successfully. Server-side conversion failed, using fallback.',
-        pdfData: pdfDataUrl,
-        filename: req.file.originalname,
-        size: req.file.size,
-        note: 'Server-side processing failed, PDF data provided as fallback.',
-        error: conversionError.message
+    } catch (error) {
+      console.error('Error converting PDF:', error);
+      
+      res.status(500).json({
+        success: false,
+        error: 'Failed to convert PDF to images',
+        details: error.message
       });
     }
 
   } catch (error) {
-    console.error('Error converting PDF:', error);
+    console.error('Error in PDF conversion endpoint:', error);
     
     res.status(500).json({
       success: false,
-      error: 'Failed to convert PDF to images',
+      error: 'Internal server error',
       details: error.message
     });
   }
