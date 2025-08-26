@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const { fromPath } = require('pdf2pic');
 const fs = require('fs-extra');
 const path = require('path');
 const cors = require('cors');
@@ -52,44 +53,47 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     await fs.writeFile(pdfPath, pdfBuffer);
 
     try {
-      // Simple PDF page counter using buffer analysis
-      // This is a basic approach that works for most PDFs
-      const pdfContent = pdfBuffer.toString('binary');
+      // Convert PDF to actual images using pdf2pic
+      const convert = fromPath(pdfPath, {
+        density: 150,
+        saveFilename: 'page',
+        savePath: outputDir,
+        format: 'png',
+        width: 2000,
+        height: 2000
+      });
+
+      const results = await convert.bulk(-1); // Convert all pages
       
-      // Count pages by looking for page markers
-      const pageMatches = pdfContent.match(/\/Page\s/g);
-      const estimatedPages = pageMatches ? pageMatches.length : 1;
-      
-      // Create individual page PDFs by splitting the buffer
-      // This is a simplified approach - in production you'd use a proper PDF library
       const images = [];
-      
-      for (let i = 0; i < estimatedPages; i++) {
-        // For now, we'll return the original PDF with page info
-        // This demonstrates the structure without complex processing
-        images.push({
-          filename: `page-${i + 1}.pdf`,
-          data: `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
-          page: i + 1,
-          type: 'pdf',
-          note: 'Page extracted from original PDF'
-        });
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.path) {
+          const imageBuffer = await fs.readFile(result.path);
+          const base64Image = imageBuffer.toString('base64');
+          
+          images.push({
+            filename: `page-${i + 1}.png`,
+            data: `data:image/png;base64,${base64Image}`,
+            page: i + 1,
+            type: 'png'
+          });
+        }
       }
 
       // Clean up temporary files
       await fs.remove(pdfPath);
       await fs.remove(outputDir);
 
-      // Return the processed pages
+      // Return the actual converted images
       res.json({
         success: true,
-        message: `PDF processed successfully. ${estimatedPages} pages detected.`,
+        message: `PDF converted to ${images.length} images successfully!`,
         images: images,
-        totalPages: estimatedPages,
+        totalPages: images.length,
         filename: req.file.originalname,
         size: req.file.size,
-        note: 'Pages returned as individual PDFs. For full image conversion, consider using a dedicated PDF service.',
-        processing: 'basic'
+        processing: 'full'
       });
 
     } catch (conversionError) {
