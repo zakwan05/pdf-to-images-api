@@ -1,7 +1,6 @@
 const express = require('express');
 const multer = require('multer');
 const { PDFDocument } = require('pdf-lib');
-const pdfParse = require('pdf-parse');
 const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
@@ -55,28 +54,9 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     await fs.writeFile(pdfPath, pdfBuffer);
 
     try {
-      // Analyze PDF using pdf-lib and pdf-parse
+      // Load PDF to get page count
       const pdfDoc = await PDFDocument.load(pdfBuffer);
       const pageCount = pdfDoc.getPageCount();
-      
-      // Extract text content
-      const pdfData = await pdfParse(pdfBuffer);
-      const textContent = pdfData.text;
-      const wordCount = textContent.split(/\s+/).filter(word => word.length > 0).length;
-      
-      // Handle image-based PDFs (scanned documents)
-      const isImageBased = wordCount === 0 && textContent.trim().length === 0;
-      
-      // Get PDF metadata
-      const metadata = {
-        title: pdfData.info?.Title || 'Unknown',
-        author: pdfData.info?.Author || 'Unknown',
-        subject: pdfData.info?.Subject || 'Unknown',
-        creator: pdfData.info?.Creator || 'Unknown',
-        producer: pdfData.info?.Producer || 'Unknown',
-        creationDate: pdfData.info?.CreationDate || 'Unknown',
-        modificationDate: pdfData.info?.ModDate || 'Unknown'
-      };
 
       // Use ILovePDF to convert PDF to images
       const ilovepdfApiKey = 'secret_key_5cea570533788720d989a23806d90927_TZ4qp3e3fe44a28acd32a59c74d4d263170aa';
@@ -138,16 +118,10 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
             res.json({
               success: true,
               message: `PDF converted to ${images.length} JPG images successfully!`,
-              analysis: {
-                pages: pageCount,
-                fileSize: req.file.size,
-                filename: req.file.originalname,
-                textContent: textContent.substring(0, 500) + '...',
-                wordCount: wordCount,
-                metadata: metadata,
-                images: images,
-                downloadUrl: `https://${server}/download/${taskId}`
-              }
+              images: images,
+              totalPages: pageCount,
+              filename: req.file.originalname,
+              fileSize: req.file.size
             });
           } else {
             throw new Error('ILovePDF task creation failed');
@@ -156,17 +130,11 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
           console.error('ILovePDF error:', ilovepdfError);
           // Fallback to analysis only
           res.json({
-            success: true,
-            message: `PDF analyzed successfully! ${pageCount} pages detected.`,
-            analysis: {
-              pages: pageCount,
-              fileSize: req.file.size,
-              filename: req.file.originalname,
-              textContent: textContent.substring(0, 500) + '...',
-              wordCount: wordCount,
-              metadata: metadata,
-              note: isImageBased ? 'Image-based PDF detected (scanned document) - text extraction limited' : 'Image conversion failed, but analysis completed successfully'
-            }
+            success: false,
+            message: `PDF to image conversion failed`,
+            error: ilovepdfError.message,
+            filename: req.file.originalname,
+            fileSize: req.file.size
           });
         }
 
