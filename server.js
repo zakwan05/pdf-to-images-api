@@ -64,6 +64,9 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
       const textContent = pdfData.text;
       const wordCount = textContent.split(/\s+/).filter(word => word.length > 0).length;
       
+      // Handle image-based PDFs (scanned documents)
+      const isImageBased = wordCount === 0 && textContent.trim().length === 0;
+      
       // Get PDF metadata
       const metadata = {
         title: pdfData.info?.Title || 'Unknown',
@@ -84,6 +87,10 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
           // Create ILovePDF task
           const taskResponse = await axios.post('https://api.ilovepdf.com/v1/start/pdfjpg', {
             public_key: ilovepdfApiKey
+          }, {
+            headers: {
+              'Content-Type': 'application/json'
+            }
           });
 
           if (taskResponse.data && taskResponse.data.server) {
@@ -158,7 +165,7 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
               textContent: textContent.substring(0, 500) + '...',
               wordCount: wordCount,
               metadata: metadata,
-              note: 'Image conversion failed, but analysis completed successfully'
+              note: isImageBased ? 'Image-based PDF detected (scanned document) - text extraction limited' : 'Image conversion failed, but analysis completed successfully'
             }
           });
         }
