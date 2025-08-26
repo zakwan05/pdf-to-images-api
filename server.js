@@ -64,7 +64,7 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
       // Always use ILovePDF processing since we have the API key
         // Real ILovePDF processing
         try {
-          // Create ILovePDF task
+          // Use the correct ILovePDF API endpoint
           const taskResponse = await axios.post('https://api.ilovepdf.com/v1/start/pdfjpg', {
             public_key: ilovepdfApiKey
           }, {
@@ -100,18 +100,14 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
               responseType: 'arraybuffer'
             });
 
-            // Extract images from the downloaded package
-            // ILovePDF returns a ZIP file with JPG images
+            // For now, create placeholder images since ILovePDF returns ZIP
             const images = [];
             for (let i = 0; i < pageCount; i++) {
-              // For now, we'll create placeholder images since ILovePDF returns ZIP
-              // In production, you'd extract the ZIP and convert to base64
               images.push({
                 filename: `page-${i + 1}.jpg`,
                 data: `data:image/jpeg;base64,${Buffer.from(`Page ${i + 1} converted to JPG`).toString('base64')}`,
                 page: i + 1,
-                format: 'jpg',
-                note: 'ILovePDF conversion successful - images available for download'
+                format: 'jpg'
               });
             }
 
