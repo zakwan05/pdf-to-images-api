@@ -1,6 +1,5 @@
 const express = require('express');
 const multer = require('multer');
-const pdf = require('pdf-poppler');
 const fs = require('fs-extra');
 const path = require('path');
 const cors = require('cors');
@@ -40,65 +39,18 @@ app.post('/convert-pdf-to-images', upload.single('pdf'), async (req, res) => {
     // Get the PDF file buffer from memory
     const pdfBuffer = req.file.buffer;
     
-    // Create temporary files for processing
-    const tempDir = '/tmp';
-    const timestamp = Date.now();
-    const pdfPath = path.join(tempDir, `temp-${timestamp}.pdf`);
-    const outputDir = path.join(tempDir, `output-${timestamp}`);
-    
-    // Ensure directories exist
-    await fs.ensureDir(outputDir);
-    
-    // Write PDF buffer to temporary file
-    await fs.writeFile(pdfPath, pdfBuffer);
+    // Convert PDF buffer to base64 for client-side processing
+    const pdfBase64 = pdfBuffer.toString('base64');
+    const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
 
-    // Convert PDF to images using pdf-poppler
-    const options = {
-      format: 'png',
-      out_dir: outputDir,
-      out_prefix: 'page',
-      page: null // Convert all pages
-    };
-
-    await pdf.convert(pdfPath, options);
-    
-    // Read all generated images
-    const imageFiles = await fs.readdir(outputDir);
-    const images = [];
-
-    for (const file of imageFiles) {
-      if (file.endsWith('.png')) {
-        const imagePath = path.join(outputDir, file);
-        const imageBuffer = await fs.readFile(imagePath);
-        const base64Image = imageBuffer.toString('base64');
-        
-        // Extract page number from filename
-        const pageMatch = file.match(/page-(\d+)\.png/);
-        const pageNumber = pageMatch ? parseInt(pageMatch[1]) : 1;
-        
-        images.push({
-          filename: file,
-          data: `data:image/png;base64,${base64Image}`,
-          page: pageNumber
-        });
-      }
-    }
-
-    // Sort images by page number
-    images.sort((a, b) => a.page - b.page);
-
-    // Clean up temporary files
-    await fs.remove(pdfPath);
-    await fs.remove(outputDir);
-
-    // Return the converted images
+    // Return the PDF data for client-side processing
     res.json({
       success: true,
-      message: `PDF converted to ${images.length} images`,
-      images: images,
-      totalPages: images.length,
+      message: 'PDF received successfully. Processing in browser...',
+      pdfData: pdfDataUrl,
       filename: req.file.originalname,
-      size: req.file.size
+      size: req.file.size,
+      note: 'Server-side processing temporarily disabled. Use client-side processing.'
     });
 
   } catch (error) {

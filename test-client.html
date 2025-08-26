@@ -384,7 +384,12 @@
 
                 if (data.success) {
                     showMessage(`✅ ${data.message}`, 'success');
-                    displayImages(data.images);
+                    if (data.images) {
+                        displayImages(data.images);
+                    } else if (data.pdfData) {
+                        showMessage(`📄 PDF received: ${data.filename} (${(data.size / 1024).toFixed(1)} KB)`, 'success');
+                        showMessage(`ℹ️ ${data.note}`, 'info');
+                    }
                 } else {
                     showMessage(`❌ API Error: ${data.error}`, 'error');
                 }
